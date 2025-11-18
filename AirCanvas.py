@@ -11,9 +11,13 @@ import numpy as np
 # Initialize the webcam
 cap = cv2.VideoCapture(0)
 
+# Set desired frame width and height
+FRAME_WIDTH = 1280
+Frame_HEIGHT = 720
+
 # Set width and height of the frame
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, Frame_HEIGHT)
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -35,9 +39,39 @@ else:
 prev_x, prev_y = None, None   
 
 # Create a black canvas same size as webcam
-ret, frame = cap.read()
-h, w, _ = frame.shape
-canvas = np.zeros((h, w, 3), dtype=np.uint8)
+canvas = np.zeros((Frame_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+
+
+# Define color buttons and eraser button
+buttons_colors_eraser = {
+    # "Blue":    {"rect": (10, 10, 110, 50), "color": (255, 0, 0)},       # Blue
+    # "Red":     {"rect": (10, 55, 110, 95), "color": (0, 0, 255)},       # Red
+    # "Green":   {"rect": (10, 100, 110, 140), "color": (0, 255, 0)},       # Green
+    # "White":   {"rect": (10, 145, 110, 185),   "color": (255, 255, 255)},   # White
+    # "Yellow":  {"rect": (10, 190, 110, 230), "color": (0, 255, 255)},     # Yellow
+    # "Pink":    {"rect": (10, 235, 110, 275), "color": (255, 0, 255)},     #Pink (Fuchsia)
+    # "Eraser":   {"rect": (10, 280, 110, 320),   "color": (0, 0, 0)},        # Eraser 
+
+    # "Blue":    {"rect": (10, 10, 110, 50),   "color": (255, 0, 0)},       # Blue
+    # "Red":     {"rect": (10, 65, 110, 105),  "color": (0, 0, 255)},       # Red
+    # "Green":   {"rect": (10, 120, 110, 160), "color": (0, 255, 0)},       # Green
+    # "White":   {"rect": (10, 175, 110, 215), "color": (255, 255, 255)},   # White
+    # "Yellow":  {"rect": (10, 230, 110, 270), "color": (0, 255, 255)},     # Yellow
+    # "Pink":    {"rect": (10, 285, 110, 325), "color": (255, 0, 255)},     # Pink (Fuchsia)
+    # "Eraser":  {"rect": (10, 375, 110, 415), "color": (0, 0, 0)}          # Eraser
+
+    "Blue":    {"rect": (20, 40, 120, 80),   "color": (255, 0, 0)},
+    "Red":     {"rect": (20, 95, 120, 135),  "color": (0, 0, 255)},
+    "Green":   {"rect": (20, 150, 120, 190), "color": (0, 255, 0)},
+    "White":   {"rect": (20, 205, 120, 245), "color": (255, 255, 255)},
+    "Yellow":  {"rect": (20, 260, 120, 300), "color": (0, 255, 255)},
+    "Pink":    {"rect": (20, 315, 120, 355), "color": (255, 0, 255)},
+    "Eraser":  {"rect": (20, 405, 120, 445), "color": (0, 0, 0)}
+}
+
+current_color = (0, 255, 0)  # set Green default
+brush_size = 8 # set 8 as default brush size
+
 
 while True:
     # Read frame from webcam
@@ -79,14 +113,50 @@ while True:
         if prev_x is None:
             prev_x, prev_y = x, y
 
+        # Check if fingertip touches any button
+        for name, btn in buttons_colors_eraser.items():
+            x1, y1, x2, y2 = btn["rect"]
+
+            if x1 < x < x2 and y1 < y < y2:
+                # Change current color or eraser
+                current_color = btn["color"]
+
         # Draw on canvas
-        cv2.line(canvas, (prev_x, prev_y), (x, y), (0, 255, 0), 8)
+        cv2.line(canvas, (prev_x, prev_y), (x, y), current_color, brush_size)
 
         # Update previous point
         prev_x, prev_y = x, y
+
+
     else:
         # If no hand detected, reset previous point
         prev_x, prev_y = None, None
+
+    # Define text properties
+    TEXT_FONT = cv2.FONT_HERSHEY_DUPLEX  
+    FONT_SCALE = 0.75  
+    TEXT_THICKNESS = 1  
+
+    # Draw UI buttons
+    for name, btn in buttons_colors_eraser.items():
+        x1, y1, x2, y2 = btn["rect"]
+        
+        # The rect coordinates for the border should be slightly larger
+        cv2.rectangle(frame, (x1 - 1, y1 - 1), (x2 + 1, y2 + 1), (0, 0, 0), 2)
+        
+        # Draw the main button rectangle (filled)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), btn["color"], -1)
+        
+        # Determine text color based on button color
+        if name.lower() == "white" or name.lower() == "yellow":
+            text_color = (0, 0, 0)  # Black text for light colors
+        else:
+            text_color = (255, 255, 255)  # White text for dark colors
+            
+        # Add text label to button
+        cv2.putText(frame, name.upper(), (x1 + 5, y1 + 30),
+                    TEXT_FONT, FONT_SCALE,
+                    text_color, TEXT_THICKNESS, cv2.LINE_AA) # Use cv2.LINE_AA for anti-aliasing the text!
 
      # Combine canvas and video
     combined = cv2.addWeighted(frame, 0.5, canvas, 1, 0)
