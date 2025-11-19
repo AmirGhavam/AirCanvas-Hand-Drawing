@@ -7,6 +7,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from itertools import chain
+import math
 
 
 # Initialize the webcam
@@ -56,10 +57,10 @@ buttons_colors_eraser = {
 # # Define action buttons
 buttons_actions = {
     "Clear":      {"rect": (FRAME_WIDTH - 130, 340,  FRAME_WIDTH - 20,  380),  "color": (51, 0, 51),  "hover": False, "display_color": (51, 0, 51),  "display_rect": (FRAME_WIDTH - 130, 340,  FRAME_WIDTH - 20,  380),"clicked": False},
-    "Save":       {"rect": (FRAME_WIDTH - 130, 495,  FRAME_WIDTH - 20, 435),  "color": (76, 0, 102),  "hover": False, "display_color": (76, 0, 102),  "display_rect": (FRAME_WIDTH - 130, 395,  FRAME_WIDTH - 20, 435),"clicked": False},
-    "Screenshot": {"rect": (FRAME_WIDTH - 130, 450, FRAME_WIDTH - 20, 490),  "color": (102, 0, 153),  "hover": False, "display_color": (102, 0, 153),  "display_rect": (FRAME_WIDTH - 130, 450, FRAME_WIDTH - 20, 490),"clicked": False},
-    "ToggleCam":  {"rect": (FRAME_WIDTH - 130, 505, FRAME_WIDTH - 20, 545),  "color": (127, 0, 204), "hover": False, "display_color": (127, 0, 204), "display_rect": (FRAME_WIDTH - 130, 505, FRAME_WIDTH - 20, 545),"clicked": False},
-    "Exit":       {"rect": (FRAME_WIDTH - 130, 560, FRAME_WIDTH - 20, 600),  "color": (153, 0, 255),   "hover": False, "display_color": (153, 0, 255),   "display_rect": (FRAME_WIDTH - 130, 560, FRAME_WIDTH - 20, 600),"clicked": False},
+    "Save":       {"rect": (FRAME_WIDTH - 130, 410,  FRAME_WIDTH - 20, 450),  "color": (76, 0, 102),  "hover": False, "display_color": (76, 0, 102),  "display_rect": (FRAME_WIDTH - 130, 410,  FRAME_WIDTH - 20, 450),"clicked": False},
+    "Screenshot": {"rect": (FRAME_WIDTH - 130, 480, FRAME_WIDTH - 20, 520),  "color": (102, 0, 153),  "hover": False, "display_color": (102, 0, 153),  "display_rect": (FRAME_WIDTH - 130, 480, FRAME_WIDTH - 20, 520),"clicked": False},
+    "ToggleCam":  {"rect": (FRAME_WIDTH - 130, 550, FRAME_WIDTH - 20, 590),  "color": (127, 0, 204), "hover": False, "display_color": (127, 0, 204), "display_rect": (FRAME_WIDTH - 130, 550, FRAME_WIDTH - 20, 590),"clicked": False},
+    "Exit":       {"rect": (FRAME_WIDTH - 130, 620, FRAME_WIDTH - 20, 660),  "color": (153, 0, 255),   "hover": False, "display_color": (153, 0, 255),   "display_rect": (FRAME_WIDTH - 130, 620, FRAME_WIDTH - 20, 660),"clicked": False},
     " -": {"rect": (20, 430, 65, 470), "color": (60, 60, 60), "hover": False, "display_color": (60, 60, 60), "display_rect": (20, 430, 65, 470)},
     " +": {"rect": (85, 430, 130, 470), "color": (80, 80, 80), "hover": False, "display_color": (80, 80, 80), "display_rect": (85, 430, 130, 470)},
     "Neon":      {"rect": (20, 575, 130, 615), "color": (255, 255, 255), "hover": False, "display_color": (255, 255, 255), "display_rect": (20, 575, 130, 615),"clicked": False},
@@ -68,6 +69,7 @@ buttons_actions = {
     "Marker":    {"rect": (20, 740, 130, 780), "color": (64, 64, 64), "hover": False, "display_color": (64, 64, 64), "display_rect": (20, 740, 130, 780),"clicked": False},
 
 }
+
 
 def draw_neon_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
     r, g, b = map(int, current_color)
@@ -84,6 +86,7 @@ def draw_neon_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
         current_color
     ]
     
+    # Draw multiple layers of glow
     for size, color in zip(sizes, colors):
         cv2.line(glow, (prev_x, prev_y), (x, y), color, size, cv2.LINE_AA)
     
@@ -153,6 +156,21 @@ def draw_marker_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
     canvas[:] = np.minimum(255, overlay + canvas * 0.15)
 
 
+# Determine which fingers are up (Thumb is ignored for simplicity)
+def fingers_up(hand_landmarks):
+    lm = hand_landmarks.landmark
+    fingers = []
+    tips = [8, 12, 16, 20]
+    pips = [6, 10, 14, 18]
+
+    for tip, pip in zip(tips, pips):
+        if lm[tip].y < lm[pip].y:
+            fingers.append(1)
+        else:
+            fingers.append(0)
+
+    return fingers
+
 
 # Set default drawing color and brush size
 current_color = (255, 0, 0)  
@@ -165,6 +183,17 @@ camera_enabled = True
 
 # Drawing pattern state
 current_pattern = "normal"
+
+# Drawing allowed flag
+drawing_allowed = True
+
+# Stores recent points for smoothing
+point_buffer = []  
+# Higher = smoother but more lag (3-6 is perfect)       
+MAX_BUFFER = 3      
+# Minimum distance between points to avoid jitter      
+MIN_DISTANCE = 2          
+
 
 # Main loop
 while True:
@@ -190,8 +219,22 @@ while True:
     results = hands.process(frame_rgb)
 
     if results.multi_hand_landmarks:
-        # Loop through detected hands (we're using max 1 hand)
+        # Loop through detected hands (we're using max 1 hand for now!)
         for hand_landmarks in results.multi_hand_landmarks:
+            # Detect fingers up
+            fingers = fingers_up(hand_landmarks)
+
+            # Exactly ONE finger up → index must be the only raised finger
+            one_finger_up = (fingers.count(1) == 1 and fingers[0] == 1)
+
+            if not one_finger_up:
+                # Disable drawing by breaking the stroke
+                prev_x, prev_y = None, None
+                drawing_allowed = False
+            else:
+                drawing_allowed = True
+
+
             # Draw hand landmarks on the frame 
             mp_drawing.draw_landmarks(
                 display_frame, 
@@ -295,34 +338,78 @@ while True:
                     exit()
 
 
+        # Drawing logic Simple version:
+        # if drawing_allowed and 152 < x < FRAME_WIDTH - 152:
 
-        if 152 < x < FRAME_WIDTH - 152:
+        #     if current_pattern == "normal":
+        #         cv2.line(canvas, (prev_x, prev_y), (x, y), current_color, brush_size)
 
-            if current_pattern == "normal":
-                cv2.line(canvas, (prev_x, prev_y), (x, y), current_color, brush_size)
-
-            elif current_pattern == "neon":
-                draw_neon_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
-
-
-            elif current_pattern == "calligraphy":                
-                draw_caligraphy_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
+        #     elif current_pattern == "neon":
+        #         draw_neon_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
 
 
-            elif current_pattern == "spray":                
-                draw_spray_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
+        #     elif current_pattern == "calligraphy":                
+        #         draw_caligraphy_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
 
 
-            elif current_pattern == "marker":
-                draw_marker_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
+        #     elif current_pattern == "spray":                
+        #         draw_spray_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
 
-            prev_x, prev_y = x, y
+
+        #     elif current_pattern == "marker":
+        #         draw_marker_line(canvas, prev_x, prev_y, x, y, current_color, brush_size)
+
+        #     prev_x, prev_y = x, y
+        # else:
+        #     prev_x, prev_y = None, None
+
+
+    # else:
+            #     # If no hand detected, reset previous point
+            #     prev_x, prev_y = None, None
+
+
+        # Improved drawing logic with smoothing and jitter reduction
+        if drawing_allowed and 152 < x < FRAME_WIDTH - 152:
+            # Add current point to buffer
+            point_buffer.append((x, y))
+            
+            # Keep buffer size limited
+            if len(point_buffer) > MAX_BUFFER:
+                point_buffer.pop(0)
+            
+            # Only draw when we have at least 2 points
+            if len(point_buffer) >= 2:
+                # Get smoothed current point (average of buffer)
+                smoothed_x = int(sum(p[0] for p in point_buffer) / len(point_buffer))
+                smoothed_y = int(sum(p[1] for p in point_buffer) / len(point_buffer))
+                
+                # Only draw if moved enough (reduces jitter + improves performance)
+                if prev_x is None or math.hypot(smoothed_x - prev_x, smoothed_y - prev_y) > MIN_DISTANCE:
+                    
+                    if current_pattern == "normal":
+                        cv2.line(canvas, (prev_x, prev_y), (smoothed_x, smoothed_y), 
+                                current_color, brush_size, cv2.LINE_AA)
+                    
+                    elif current_pattern == "neon": 
+                        draw_neon_line(canvas, prev_x, prev_y, smoothed_x, smoothed_y, current_color, brush_size)
+                    
+                    elif current_pattern == "calligraphy":
+                        draw_caligraphy_line(canvas, prev_x, prev_y, smoothed_x, smoothed_y, current_color, brush_size)
+                    
+                    elif current_pattern == "spray":
+                        draw_spray_line(canvas, prev_x, prev_y, smoothed_x, smoothed_y, current_color, brush_size)
+                    
+                    elif current_pattern == "marker":
+                        draw_marker_line(canvas, prev_x, prev_y, smoothed_x, smoothed_y, current_color, brush_size)
+                    
+                    prev_x, prev_y = smoothed_x, smoothed_y
+
         else:
+            point_buffer = []        
             prev_x, prev_y = None, None
+            drawing_allowed = False 
 
-    else:
-        # If no hand detected, reset previous point
-        prev_x, prev_y = None, None
 
     # Draw buttons
     for name, btn in chain(buttons_colors_eraser.items(), buttons_actions.items()):
@@ -356,9 +443,6 @@ while True:
 
     cv2.line(canvas, (0, 378), (150, 378), line_color, 2)
     cv2.line(canvas, (0, 498), (150, 498), line_color, 2)
-
-
-
 
     # Combine canvas and video
     combined = cv2.addWeighted(display_frame, 0.5, canvas, 1, 0)
