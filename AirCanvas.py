@@ -51,7 +51,7 @@ buttons_colors_eraser = {
     "White":   {"rect": (20, 205, 130, 245), "color": (255, 255, 255),"hover": False, "display_color": (255, 255, 255),"display_rect": (20, 205, 130, 245),"clicked": False},
     "Yellow":  {"rect": (20, 260, 130, 300), "color": (0, 255, 255), "hover": False, "display_color": (0, 255, 255), "display_rect": (20, 260, 130, 300),"clicked": False},
     "Pink":    {"rect": (20, 315, 130, 355), "color": (255, 0, 255), "hover": False, "display_color": (255, 0, 255), "display_rect": (20, 315, 130, 355),"clicked": False},
-    "Eraser":  {"rect": (20, 520, 130, 560), "color": (0, 0, 0),     "hover": False, "display_color": (0, 0, 0),     "display_rect": (20, 520, 130, 560),"clicked": False}
+    "Eraser":  {"rect": (20, 520, 130, 560), "color": (0, 0, 0),     "hover": False, "display_color": (0, 0, 0),     "display_rect": (20, 520, 130, 560),"clicked": False},
 }
 
 # # Define action buttons
@@ -67,10 +67,9 @@ buttons_actions = {
     "Calligraphy": {"rect": (20, 630, 130, 670), "color": (192, 192, 192), "hover": False, "display_color": (192, 192, 192), "display_rect": (20, 630, 130, 670),"clicked": False},
     "Spray":     {"rect": (20, 685, 130, 725), "color": (128, 128, 128), "hover": False, "display_color": (128, 128, 128), "display_rect": (20, 685, 130, 725),"clicked": False},
     "Marker":    {"rect": (20, 740, 130, 780), "color": (64, 64, 64), "hover": False, "display_color": (64, 64, 64), "display_rect": (20, 740, 130, 780),"clicked": False},
-
 }
 
-
+# Helper funstion for drawing neon lines
 def draw_neon_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
     r, g, b = map(int, current_color)
     
@@ -97,8 +96,9 @@ def draw_neon_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
     canvas[:] = np.maximum(canvas, glow)
 
 
+# Helper function for drawing calligraphy lines
 def draw_caligraphy_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
-    # Real calligraphy: thick when going down, thin when going sideways/up
+    # Thick when going down, thin when going sideways/up
     dx = x - prev_x
     dy = y - prev_y
     angle = np.arctan2(dy, dx)  # direction of stroke
@@ -112,14 +112,17 @@ def draw_caligraphy_line(canvas, prev_x, prev_y, x, y, current_color, brush_size
             cv2.LINE_AA)  # anti-aliased = beautiful edges
 
 
+# Helper function for drawing spray lines
 def draw_spray_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
     # Proper airbrush/spray effect — dense in center, fades out
     num_dots = int(brush_size * 3)  # more dots = denser spray
     for _ in range(num_dots):
         # Gaussian distribution = natural spray
         while True:
+            # Random offset within a circle
             offset_x = np.random.randint(-brush_size*2, brush_size*2)
             offset_y = np.random.randint(-brush_size*2, brush_size*2)
+            # Check if within circle
             dist = (offset_x**2 + offset_y**2) ** 0.5
             if dist <= brush_size * 2:
                 # Density falloff (center = full, edge = rare)
@@ -136,6 +139,8 @@ def draw_spray_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
         cv2.circle(canvas, (x + offset_x, y + offset_y), 
                 np.random.randint(1, 4), spray_color, -1)
 
+
+# Helper function for drawing marker lines
 def draw_marker_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
     # Create temporary overlay
     overlay = canvas.astype(np.float32)
@@ -158,6 +163,7 @@ def draw_marker_line(canvas, prev_x, prev_y, x, y, current_color, brush_size):
 
 # Determine which fingers are up (Thumb is ignored for simplicity)
 def fingers_up(hand_landmarks):
+    # Returns a list of 4 elements (index to pinky), 1 = finger up, 0 = finger down
     lm = hand_landmarks.landmark
     fingers = []
     tips = [8, 12, 16, 20]
@@ -189,8 +195,10 @@ drawing_allowed = True
 
 # Stores recent points for smoothing
 point_buffer = []  
+
 # Higher = smoother but more lag (3-6 is perfect)       
-MAX_BUFFER = 3      
+MAX_BUFFER = 3   
+
 # Minimum distance between points to avoid jitter      
 MIN_DISTANCE = 2          
 
@@ -205,6 +213,7 @@ while True:
  
     # Mirror the frame horizontally for better user experience
     frame = cv2.flip(frame, 1)
+
     # MediaPipe needs RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  
 
@@ -213,7 +222,6 @@ while True:
         display_frame = frame.copy()
     else:
         display_frame = np.zeros_like(frame)
-
 
     # Process frame for hand detection
     results = hands.process(frame_rgb)
@@ -233,7 +241,6 @@ while True:
                 drawing_allowed = False
             else:
                 drawing_allowed = True
-
 
             # Draw hand landmarks on the frame 
             mp_drawing.draw_landmarks(
@@ -255,7 +262,6 @@ while True:
         # Initialize previous point on first detection
         if prev_x is None:
             prev_x, prev_y = x, y
-
 
         # Check hover state for all buttons and update button appearance
         for name, btn in chain(buttons_colors_eraser.items(), buttons_actions.items()):
@@ -280,7 +286,6 @@ while True:
                 btn["display_color"] = btn["color"]
                 btn["display_rect"] = btn["rect"]
 
-
         # Handle color and eraser buttons
         for name, btn in buttons_colors_eraser.items():
             x1, y1, x2, y2 = btn["rect"]
@@ -288,7 +293,8 @@ while True:
 
             # If fingertip is inside AND hover is True AND we haven't fired yet -> fire once
             if inside and btn["hover"] and not btn.get("clicked", False):
-                btn["clicked"] = True  # prevent repeated firing while finger stays inside
+                # prevent repeated firing while finger stays inside
+                btn["clicked"] = True  
                 # Change current color or eraser
                 current_color = btn["color"]
 
@@ -338,7 +344,8 @@ while True:
                     exit()
 
 
-        # Drawing logic Simple version:
+        # Drawing logic Simple version -- commented out for improved version below!!
+
         # if drawing_allowed and 152 < x < FRAME_WIDTH - 152:
 
         #     if current_pattern == "normal":
@@ -406,6 +413,7 @@ while True:
                     prev_x, prev_y = smoothed_x, smoothed_y
 
         else:
+            # If not drawing, reset buffer and previous point
             point_buffer = []        
             prev_x, prev_y = None, None
             drawing_allowed = False 
@@ -436,11 +444,10 @@ while True:
     cv2.putText(display_frame, f"Brush: {brush_size}px", (30, 410),
                 cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
     
+    # Draw boundary lines
     line_color = (20,20,20)
-
     cv2.line(canvas, (150, 0), (150, FRAME_HEIGHT), line_color, 2)
     cv2.line(canvas, (FRAME_WIDTH-150, 0), (FRAME_WIDTH-150, FRAME_HEIGHT), line_color, 2)
-
     cv2.line(canvas, (0, 378), (150, 378), line_color, 2)
     cv2.line(canvas, (0, 498), (150, 498), line_color, 2)
 
