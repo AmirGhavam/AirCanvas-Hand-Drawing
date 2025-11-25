@@ -1,7 +1,3 @@
-Here is a comprehensive `README.md` file tailored to your code. You can copy and paste this directly into your GitHub repository.
-
-***
-
 # 🎨 AirCanvas
 
 **Author:** Amir Ghavam
