@@ -47,7 +47,7 @@ To run this project, you need to have Python installed along with the following 
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/AirCanvas.git
+    git clone https://github.com/AmirGhavam/AirCanvas-Hand-Drawing.git
     cd AirCanvas
     ```
 
